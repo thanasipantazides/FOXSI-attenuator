@@ -1,0 +1,392 @@
+
+
+module Attenuator3D
+using Distributed
+using SharedArrays
+using LinearAlgebra
+using Plots
+
+export Particle
+struct Particle
+    r0  # initial position
+    v   # propagation direction (unit)
+    E   # energy
+end
+
+export Cylinder
+struct Cylinder
+    R   # radius
+    h   # height
+    c   # center point
+    a   # axis (unit)
+end
+
+export PixelatedAttenuator
+struct PixelatedAttenuator
+    holes
+    density     # in kg/m^3
+    toppoint    # a point (x,y,z) on the one side of the attenuator (in m)
+    bottompoint # a point on the other side of the attenuator
+    normal      # normal vector to attenuator surface
+    largeradius # largest hole radius in attenuator 
+    massattenuation # table of mass attenuation coefficients per energy
+end
+
+export so3
+"""
+    so3(u)
+
+Get skew-symmetric matrix for crossing `u` with another 3-vector. I.e.: so3(u)*v == cross(u,v)
+"""
+function so3(u)
+    return [0 -u[3] u[2]; u[3] 0 -u[1]; -u[2] u[1] 0]
+end
+
+export interpolateattenuation
+"""
+    interpolateattenuation(E, massattenuation)
+
+Interpolate in array `massattenuation` by energy E (in eV). First column of `massattenuation` is energy in MeV, second column is mass attenuation coefficient μ/ρ in m^2/kg. Returns mass attenuation coefficient corresponding to input energy E.
+"""
+function interpolateattenuation(E, massattenuation)
+    energies = massattenuation[:,1]
+    coefficients = massattenuation[:,2]
+
+    diff = E .- energies
+
+    if all(diff .> 0) || all(diff .< 0)
+        error("interpolant outside range")
+    end
+
+    upper = findfirst(diff .≤ 0)
+    lower = findlast(diff .≥ 0)
+
+    if lower == upper
+        return coefficients[lower]
+    else
+        return coefficients[lower] + (E - energies[lower])/(energies[upper] - energies[lower])*(coefficients[upper] - coefficients[lower])
+    end
+end
+
+export cylinderentryexit
+"""
+    cylinderentryexit(particle, cylinder)
+
+Compute times at which a ray passes through a cylinder. The ray has initial position `particle.r0` and velocity `particle.v`. The cylinder has radius `cylinder.R`, height `cylinder.h`, a point one one of its caps `cylinder.c`, and a unit-length axis pointing from `cylinder.c` towards its other cap `cylinder.a`. 
+
+Two scalars are returned: the time at which the ray enters the cylinder and the time at which it leaves the cylinder. If the ray misses the cylinder, zeros are returned for both entry and exit time.
+"""
+function cylinderentryexit(particle, cylinder)
+    r0 = particle.r0
+    v = particle.v
+    c = cylinder.c
+    a = cylinder.a
+    R = cylinder.R
+    h = cylinder.h
+
+    ttop = (c'*a - r0'*a)/(v'*a)
+    tbottom = (c'*a + h - r0'*a)/(v'*a)
+
+    topcapradius = norm(r0 + v*ttop - c)
+    bottomcapradius = norm(r0 + v*tbottom - c - a*h)
+
+    qa = v'*v - (v'*a)^2
+    qb = 2*((r0'*v - c'*v) - ((v'*a)*(r0'*a - c'*a)))
+    qc = norm(r0 - c)^2 - (r0'*a - c'*a)^2 - R^2
+
+    # particle coaxial with cylinder:
+    if qa == 0
+        # check if it hits caps, if so return caps times
+        if topcapradius ≤ R
+            if bottomcapradius ≤ R
+                # rectify to zero if particle starts within cylinder
+                ttop = max(ttop, 0)
+                tbottom = max(tbottom, 0)
+                return (min(ttop, tbottom), max(ttop, tbottom))
+            else
+                error("particle supposedly parallel to cylinder axis")
+            end
+        else
+            # outside cap radius, miss
+            if bottomcapradius ≤ R
+                error("particle supposedly parallel to cylinder axis")
+            end
+
+            return (0, 0)
+        end
+        
+    # photon oblique to cylinder axis:
+    else
+        root1 = (-qb + sqrt(Complex(qb^2 - 4*qa*qc)))/(2*qa)
+        root2 = (-qb - sqrt(Complex(qb^2 - 4*qa*qc)))/(2*qa)
+
+        if imag(root1) == 0
+            root1 = real(root1)
+            root2 = real(root2)
+            # hits infinite cylinder somewhere
+            t1 = min(root1, root2)
+            t2 = max(root1, root2)
+
+            # list of all intersection times with cap planes and cylinder
+            dt = [tbottom, ttop, t1, t2]
+            # order intersection times
+            I = sortperm(dt)
+
+            # check if first two intersection times are with cylinder (t1, t2)
+            if length(intersect(I[1:2], [3, 4])) == 2
+                # miss
+                return (0, 0)
+            end
+            # check if last two intersection times are with cylinder (t1, t2)
+            if length(intersect(I[3:4], [3, 4])) == 2
+                # miss
+                return (0, 0)
+            end
+
+            # if you've made it this far, cylinder is hit somewhere
+            tin = dt[I[2]]
+            tout = dt[I[3]]
+
+            tin = max(tin, 0)
+            tout = max(tout, 0)
+            return (tin, tout)
+
+        # miss altogether (complex roots for intersection with cylinder) 
+        else
+            return (0, 0)
+        end
+    end
+end
+
+export lengthsinattenuator
+"""
+    lengthsinattenuator(photon, attenuator)
+
+Get distances a `photon::Particle` travels within an `attenuator::PixelatedAttenuator` which has cylinders cut out of it. 
+"""
+function lengthsinattenuator(photon, attenuator)
+    topcylinderstimes = Array{Float64}(undef, 0, 2)
+    # filter cylinders along path
+    hits = falses(length(attenuator.holes[:]))
+    for c = 1:length(attenuator.holes[:])
+        if norm(cross(photon.v,attenuator.holes[c].a)) == 0
+            # if cylinder parallel to ray
+            hits[c] = norm(attenuator.holes[c].c - photon.r0 - photon.v*((photon.v'*(attenuator.holes[c].c - photon.r0))./(photon.v'*photon.v))) ≤ attenuator.holes[c].R
+        else
+            # if cylinder oblique to ray
+            hits[c] = cross(photon.v, attenuator.holes[c].a)'*(photon.r0 - attenuator.holes[c].c)/norm(cross(photon.v, attenuator.holes[c].a)) ≤ attenuator.holes[c].R
+        end
+        
+        # if this photon flies within this cylinder's radius, check for collision
+        if hits[c]
+            (tin, tout) = cylinderentryexit(photon, attenuator.holes[c])
+
+            # make sure it actually hits cylinder
+            if tout - tin > 0
+                topcylinderstimes = cat(topcylinderstimes, [tin tout], dims=1)
+            end
+        end
+    end
+    
+    # sort cylinders visited in order of visit time (increasing distance from r0 along v)
+    sortedcylinderstimes = zeros(size(topcylinderstimes))
+    if length(topcylinderstimes[:,1]) > 1
+        topcylinderorder = sortperm(topcylinderstimes[:,1])
+        sortedcylinderstimes = topcylinderstimes[topcylinderorder,:]
+    else
+        sortedcylinderstimes = topcylinderstimes
+    end
+    
+    # times at which photon hits attenuator top surface and bottom surface
+    tslabbottom = (attenuator.bottompoint'*attenuator.normal - photon.r0'*attenuator.normal)/(photon.v'*attenuator.normal)
+    tslabtop = (attenuator.toppoint'*attenuator.normal - photon.r0'*attenuator.normal)/(photon.v'*attenuator.normal)
+
+    tslabin = min(tslabbottom, tslabtop)
+    tslabout = max(tslabbottom, tslabtop)
+
+    if length(sortedcylinderstimes) > 0
+        # times spent within attenuator material (complement of time spent in cylinders)
+        timediffs = [sortedcylinderstimes[:,1]; tslabout] - [tslabin; sortedcylinderstimes[:,2]]
+    else
+        timediffs = tslabout - tslabin
+    end
+
+    # path lengths in material
+    lengths = norm(photon.v).*timediffs
+
+    return lengths
+end
+
+export absorptionprobability
+"""
+    absorptionprobability(photon, attenuator)
+
+Return the probability of a photon::Particle being absorbed in attenuator::PixelatedAttenuator.
+"""
+function absorptionprobability(photon, attenuator)
+    lengths = lengthsinattenuator(photon, attenuator)
+    if length(lengths) != 0
+        transmissionlikelihoods = zeros(size(lengths))
+        for i = 1:length(lengths)
+            # interpolate attenuation coefficients from table data:
+            attenuationcoeff = interpolateattenuation(photon.E, attenuator.massattenuation)
+            
+            # probability of passing through material:
+            transmissionlikelihoods[i] = exp(-lengths[i]/attenuationcoeff)
+        end
+
+        # complement of total transmission likelihood is absorption likelihood
+        absorptionlikelihood = 1 - prod(transmissionlikelihoods)
+        
+        return absorptionlikelihood
+    else
+        return 0.0
+    end
+end
+
+export batchphotons
+"""
+    batchphotons(photons, attenuator)
+
+Compute absorption likelihood for a set of `photons` passing through `attenuator`. If multiple processes are available, computation will be parallelized. To execute in parallel, use the `Distributed` module in the calling context, add processes using `addprocs(n)`, and include this source with the `@everywhere macro` before `using` the module:
+    
+    @everywhere include("path_to_this_file.jl")
+    using .Attenuator3D
+"""
+function batchphotons(photons, attenuator)
+    # check if multiple processes available:
+    if nprocs() > 1
+        absorblikelihood = SharedArray{Float64}(size(photons))
+    
+        # parallel loop over photons
+        @inbounds @distributed for i = 1:length(photons)
+            absorblikelihood[i] = absorptionprobability(photons[i], attenuator)
+        end
+        return absorblikelihood
+    else
+        absorblikelihood = zeros(size(photons))
+
+        @inbounds for i = 1:length(photons)
+            absorblikelihood[i] = absorptionprobability(photons[i], attenuator)
+        end
+        return absorblikelihood
+    end
+end
+
+export plotcyl
+"""
+    plotcyl(cylinder::Cylinder)
+
+Plot a transparent cylinder described by in Cylinder struct
+"""
+function plotcyl(cylinder)
+    R = cylinder.R
+    h = cylinder.h
+    c = cylinder.c
+    a = cylinder.a
+    a = a./norm(a)
+
+    # angular resolution:
+    n = 100
+
+    t = range(0, stop=2π, length=n)
+    
+    X = R.*[cos.(t) cos.(t)]
+    Y = R.*[sin.(t) sin.(t)]
+    Z = [zeros(n,1) h*ones(n,1)]
+
+    transform = zeros(3,3)
+    if a'*[0;0;1] == 1
+        # if cylinder axis parallel to z-axis:
+        transform = I
+    elseif a'*[0;0;1] == -1
+        # if cylinder axis antiparallel to z-axis:
+        transform = [1 0 0; 0 -1 0; 0 0 -1]
+    else
+        # cylinder axis oblique to z-axis:
+        ax = cross([0;0;1], a)
+        ax = ax./norm(ax)
+        cosang = a'*[0;0;1]
+        # Rodrigues's formula/axis-angle representation:
+        transform = I*cosang + (1 - cosang)*(ax*ax') + [0 -ax[3] ax[2]; ax[3] 0 -ax[1]; -ax[2] ax[1] 0]*sqrt(1 - cosang^2)
+    end
+
+    # transform all cylinder points:
+    for i = 1:n
+        posl = [X[i,1]; Y[i,1]; Z[i,1]]
+        posr = [X[i,2]; Y[i,2]; Z[i,2]]
+
+        newposl = transform*posl
+        newposr = transform*posr
+
+        X[i,:] = [newposl[1] newposr[1]] + [c[1] c[1]]
+        Y[i,:] = [newposl[2] newposr[2]] + [c[2] c[2]]
+        Z[i,:] = [newposl[3] newposr[3]] + [c[3] c[3]]
+    end
+
+    # draw surface:
+    s = surface(X,Y,Z,
+            color=:green,
+            alpha=0.75)
+    return s
+end
+
+export plotcyl!
+"""
+    plotcyl!(cylinder::Cylinder)
+
+Plot a transparent cylinder described by in Cylinder struct
+"""
+function plotcyl!(cylinder)
+    R = cylinder.R
+    h = cylinder.h
+    c = cylinder.c
+    a = cylinder.a
+    a = a./norm(a)
+
+    # angular resolution:
+    n = 100
+
+    t = range(0, stop=2π, length=n)
+
+    X = R.*[cos.(t) cos.(t)]
+    Y = R.*[sin.(t) sin.(t)]
+    Z = [zeros(n,1) h*ones(n,1)]
+
+    transform = zeros(3,3)
+    if a'*[0;0;1] == 1
+        # if cylinder axis parallel to z-axis:
+        transform = I
+    elseif a'*[0;0;1] == -1
+        # if cylinder axis antiparallel to z-axis:
+        transform = [1 0 0; 0 -1 0; 0 0 -1]
+    else
+        # cylinder axis oblique to z-axis:
+        ax = cross([0;0;1], a)
+        ax = ax./norm(ax)
+        cosang = a'*[0;0;1]
+        # Rodrigues's formula/axis-angle representation:
+        transform = I*cosang + (1 - cosang)*(ax*ax') + so3(ax)*sqrt(1 - cosang^2)
+    end
+
+    # transform all cylinder points:
+    for i = 1:n
+        posl = [X[i,1]; Y[i,1]; Z[i,1]]
+        posr = [X[i,2]; Y[i,2]; Z[i,2]]
+
+        newposl = transform*posl
+        newposr = transform*posr
+
+        X[i,:] = [newposl[1] newposr[1]] + [c[1] c[1]]
+        Y[i,:] = [newposl[2] newposr[2]] + [c[2] c[2]]
+        Z[i,:] = [newposl[3] newposr[3]] + [c[3] c[3]]
+    end
+
+    # draw surface:
+    s = surface!(X,Y,Z,
+            color=:green,
+            alpha=0.75)
+    return s
+end
+
+end # /module

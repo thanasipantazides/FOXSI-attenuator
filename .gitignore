@@ -1,0 +1,15 @@
+# MacOS:
+**/.DS_Store
+
+# VSCode:
+.vscode/
+
+# TeX:
+doc/*.aux
+doc/*.bbl
+doc/*.blg
+doc/*.log
+doc/*.gz
+
+# this project:
+voronoi.jl

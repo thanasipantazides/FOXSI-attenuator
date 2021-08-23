@@ -1,0 +1,100 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+
+\author{Thanasi Pantazides}
+\title{Tracing Rays through a Pixelated Attenuator}
+
+
+\begin{document}
+% math:
+\newcommand{\mbs}[1]{\ensuremath{\boldsymbol{#1}}}
+\newcommand{\trans}{\ensuremath{\mathsf{T}}}
+\newcommand{\norm}[1]{\left\Vert#1\right\Vert} 	
+
+\newcommand{\source}{\ensuremath{\mbs{r}_0}}
+\newcommand{\path}{\ensuremath{\mbs{v}}}
+
+\newcommand{\radius}{\ensuremath{R}}
+\newcommand{\height}{\ensuremath{h}}
+\newcommand{\cent}{\ensuremath{\mbs{c}}}
+\newcommand{\axis}{\ensuremath{\mbs{a}}}
+
+\newcommand{\headtime}{\ensuremath{t_c}}
+\newcommand{\walltime}{\ensuremath{t_w}}
+
+% text:
+\newcommand{\foxsi}{FOXSI-4}
+
+
+\maketitle
+
+\section{Motivation}
+\foxsi{} will include a microfabricated, pixelated attenuator in front of one of its CdTe detectors. This attenuator will be printed on a silicon wafer, and will contain many (thousands) of cylindrical holes. To model the response of this attenuator to incident flux, we develop a ray tracing simulation that estimates the likelihood of absorption or transmission in the pixelated attenuator given an incident photon's path and energy. We hope to use this simulation to analyze the sensitivity of the attenuator response to errors in mounting position and angle. 
+
+This simulation centers around efficient computation of the distance an x-ray photon travels within attenuator silicon. Because the attenuator contains many cylindrical holes, the problem of determining the distance the photon travels through silicon requires modeling how long it travels through cylinders, or free space. By computing the distance a given x-ray photon travels through each attenuator hole it encounters, we can determine the likelihood it is absorb or transmitted through the attenuator.
+
+\section{Rays}
+A \textit{ray} describes the path of a particle (such as a photon) travelling in a line from a source point. Let the ray's source be $\source \in \mathbb{R}^3$ and its direction $\path \in \mathbb{R}^3$. Then, the particle's path may be parameterized by scalar $t$:
+	\begin{equation}
+		\mbs{r}(t) = \source + \path t .
+		\label{eqn:trajectory}
+	\end{equation} 
+We will assume the particle's propagation direction $\path$ is a unit vector.
+
+\section{Cylinders}
+A finite cylinder has radius $\radius$, height $\height$, axis $\axis$, and a point on the intersection of one cap and its axis $\cent$. We will model this cylinder as the region bounded by three surfaces: the two planes defining the cylinder caps, and an infinite tube perpendicular to those caps. Here, we take the convention that the cylinder axis $\axis$ points from one cylinder cap to the other (it is an inward-normal vector). 
+
+A point $\mbs{p}$ lying in one of the caps satisfies:
+	\begin{equation}
+		(\mbs{p} - \cent)^\trans\axis = 0.
+		\label{eqn:rootcap}
+	\end{equation}
+Assuming $\axis$ is a unit vector, a point $\mbs{p}$ lying in the opposite cap satisfies:
+	\begin{equation}
+		(\mbs{p} - \cent - \axis\height)^\trans\axis = 0
+		\label{eqn:endcap}
+	\end{equation}	
+The infinite tube defining the cylinder's surface between the caps is the locus of points $\mbs{p}$ which satisfy:
+	\begin{equation}
+		\radius^2 + \big((\mbs{p} - \cent)^\trans\axis\big)^2 - \norm{\mbs{p} - \cent}^2 = 0
+		\label{eqn:tube}
+	\end{equation}
+
+In order to determine the distance an x-ray photon travels through attenuator silicon, we first must model the distance that photon travels through a single cylindrical hole in the attenuator. This follows from determining collision locations with the finite cylinder. Given the ray trajectory in Equation \ref{eqn:trajectory}, we find the intersection $\headtime^1$ of that ray with the cylinder cap by substituting:
+	\begin{equation}
+		\begin{aligned}
+			0 &= (\source + \path \headtime^1 - \cent)^\trans\axis \\
+			&= \source^\trans\axis + \path^\trans\axis \headtime^1 - \cent^\trans\axis \\
+			\implies \headtime^1 &= \frac{\cent^\trans\axis - \source^\trans\axis}{\path^\trans\axis}
+		\end{aligned}
+	\end{equation}
+
+Similarly, we can find the intersection of the ray with the other cylinder cap, $\headtime^2$, by substituting Equation \ref{eqn:trajectory} into Equation \ref{eqn:endcap}:
+	\begin{equation}
+		\begin{aligned}
+			0 &= (\source + \path \headtime^2 - \cent - \axis\height)^\trans\axis \\
+			&= \source^\trans\axis + \path^\trans\axis \headtime^2 - \cent^\trans\axis - \axis^\trans\axis\height \\
+			\implies \headtime^2 &= \frac{\height + \cent^\trans\axis - \source^\trans\axis}{\path^\trans\axis}
+		\end{aligned}
+	\end{equation}	
+Note that for both cylinder caps, if the ray is parallel to the cap the denominator $\path^\trans\axis=0$ and the solution is degenerate.
+
+We can also substitute Equation \ref{eqn:trajectory} into Equation \ref{eqn:tube} to compute intersections with the cylinder walls $\walltime$:
+	\begin{equation}
+		\begin{aligned}
+			0 &= \radius^2 + \big((\source + \path \walltime - \cent)^\trans\axis \big)^2 - \norm{\source + \path\walltime - \cent}^2 \\
+			&= \radius^2 + \big(\source^\trans\axis + \path^\trans\axis \walltime - \cent^\trans\axis \big)^2 - (\source + \path\walltime - \cent)^\trans(\source + \path\walltime - \cent) \\
+			&= (\path\walltime + \source - \cent)^\trans(\path\walltime + \source - \cent) - (\source^\trans\axis + \path^\trans\axis\walltime - \cent^\trans\axis)^2 - \radius^2 \\
+			&= \path^\trans\path\walltime^2 + 2(\path^\trans\source - \path^\trans\cent)\walltime + \source^\trans\source + \cent^\trans\cent - 2\source^\trans\cent - (\source^\trans\axis + \path^\trans\axis\walltime - \cent^\trans\axis)^2 - \radius^2 \\
+			&= \path^\trans\path\walltime^2 + 2(\path^\trans\source - \path^\trans\cent)\walltime + \source^\trans\source + \cent^\trans\cent - 2\source^\trans\cent - (\source^\trans\axis + \path^\trans\axis\walltime - \cent^\trans\axis)(\source^\trans\axis + \path^\trans\axis\walltime - \cent^\trans\axis) - \radius^2 \\
+			&= \path^\trans\path\walltime^2 + 2(\path^\trans\source - \path^\trans\cent)\walltime + \source^\trans\source + \cent^\trans\cent - 2\source^\trans\cent - \big((\path^\trans\axis)^2\walltime^2 + 2(\path^\trans\axis)(\source^\trans\axis)\walltime - 2(\path^\trans\axis)(\cent^\trans\axis)\walltime + (\source^\trans\axis)^2 - 2(\source^\trans\axis)(\cent^\trans\axis) + (\cent^\trans\axis)^2\big) - \radius^2 \\
+			&= \big(\path^\trans\path - (\path^\trans\axis)^2\big)\walltime^2 + 2\big(\path^\trans\source - \path^\trans\cent + (\path^\trans\axis)(\source^\trans\axis - \source^\trans\axis)\big)\walltime + \source^\trans\source + \cent^\trans\cent - 2\source^\trans\cent + (\source^\trans\axis)^2 + (\cent^\trans\axis)^2 - 2(\source^\trans\axis)(\cent^\trans\axis) - \radius^2 \\
+			&= \big(\path^\trans\path - (\path^\trans\axis)^2\big)\walltime^2 + 2\big(\path^\trans\source - \path^\trans\cent + (\path^\trans\axis)(\source^\trans\axis - \source^\trans\axis)\big)\walltime + \norm{\source - \cent}^2 + (\source^\trans\axis)^2 + (\cent^\trans\axis)^2 - 2(\source^\trans\axis)(\cent^\trans\axis) - \radius^2
+		\end{aligned}
+	\end{equation}
+
+
+\end{document}
