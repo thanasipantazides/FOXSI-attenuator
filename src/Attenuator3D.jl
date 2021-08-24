@@ -1,5 +1,3 @@
-
-
 module Attenuator3D
 using Distributed
 using SharedArrays
@@ -259,10 +257,10 @@ function batchphotons(photons, attenuator)
         absorblikelihood = SharedArray{Float64}(size(photons))
     
         # parallel loop over photons
-        @inbounds @distributed for i = 1:length(photons)
+        @inbounds @sync @distributed for i = 1:length(photons)
             absorblikelihood[i] = absorptionprobability(photons[i], attenuator)
         end
-        return absorblikelihood
+        return Array(absorblikelihood)
     else
         absorblikelihood = zeros(size(photons))
 
@@ -327,7 +325,8 @@ function plotcyl(cylinder)
     # draw surface:
     s = surface(X,Y,Z,
             color=:green,
-            alpha=0.75)
+            alpha=0.75,
+            legend=false)
     return s
 end
 
@@ -385,7 +384,8 @@ function plotcyl!(cylinder)
     # draw surface:
     s = surface!(X,Y,Z,
             color=:green,
-            alpha=0.75)
+            alpha=0.75,
+            legend=false)
     return s
 end
 

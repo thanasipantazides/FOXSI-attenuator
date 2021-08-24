@@ -26,7 +26,7 @@ inenergy = inenergy[keepI]
 inangle = inangle[keepI]
 
 # pick how many photons to sample:
-samplesize = 100
+samplesize = 100000
 sampleI = sample(1:length(inenergy), samplesize, replace=false)
 
 inenergy = inenergy[sampleI]
@@ -111,9 +111,12 @@ for i = 1:nphotons
 end
 
 # process photons:
-absorbprob = Attenuator3D.batchphotons(photons, attenuator)
+@time absorbprob = Attenuator3D.batchphotons(photons, attenuator)
 
-outenergy = (1 .- absorbprob).*inenergy
+# outenergy = (1 .- absorbprob).*inenergy
+passing = (1 .- absorbprob) .< rand(size(absorbprob)...)
+outenergy = inenergy.*passing
+outenergy = outenergy[outenergy .!= 0]
 
 
 sortangle = sortperm(inangle)
@@ -121,9 +124,9 @@ sortangle = sortperm(inangle)
 plotlyjs()
 
 hin = histogram(inenergy./1000, ylabel="Counts", xlabel="Energy[keV]", legend=false)
-hout = histogram(outenergy./1000, xlabel="Energy[keV]", legend=false)
+hout = histogram!(outenergy./1000, color=:red, alpha=0.7, ylabel="Counts", xlabel="Energy[keV]", legend=false)
 
-plot(hin, hout)
+# plot(hin, hout)
 
 # xaxis!(:log10)
 # yaxis!(:log10)

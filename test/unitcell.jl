@@ -1,13 +1,14 @@
-using LinearAlgebra
 using Distributed
-using Plots
-using CSV
-using DataFrames
 
 # add a process for each CPU core:
 if nprocs() < length(Sys.cpu_info()) + 1
     addprocs(1 + length(Sys.cpu_info()) - nprocs())
 end
+
+@everywhere using LinearAlgebra
+using Plots
+using CSV
+using DataFrames
 
 # include the library on all cores:
 @everywhere include("../src/Attenuator3D.jl")
@@ -97,13 +98,15 @@ boundy = boundboxpoints[2,draworder]
 boundz = boundboxpoints[3,draworder]
 
 plotlyjs()
+
 plot(boundx, boundy, boundz, color=:blue, legend=false)
 
 scale = upz/max(absorbprob...)
 offset = max(scale.*absorbprob...)
-surf = surface!(x, y, scale.*absorbprob .- offset, color=:thermal, alpha=1, legend=false)
+# surface!(x, y, scale.*absorbprob .- offset, color=:thermal, alpha=1.0, legend=false)
 
 scatter!(x, y, γz.*ones(nγ,nγ), color=:yellow, markersize=1, legend=false)
 
 Attenuator3D.plotcyl!(tophole)
 Attenuator3D.plotcyl!(bottomhole)
+
