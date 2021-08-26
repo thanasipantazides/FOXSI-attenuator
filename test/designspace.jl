@@ -79,7 +79,7 @@ twistrange = [0, π/2]
 positionrange = [0, 60e-6] .+ x0
 
 # number of steps in each range:
-n = 5
+n = 10
 
 Es = LinRange(energyrange[1], energyrange[2], n)
 θs = LinRange(pitchrange[1], pitchrange[2], n)
