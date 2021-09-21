@@ -389,4 +389,32 @@ function plotcyl!(cylinder)
     return s
 end
 
+export plotparticles
+"""
+    plotparticles(particles::Array{Particle}, energycode)
+
+Plot particles as rays with option (set by `energycode` bit) to colorcode
+"""
+function plotparticles(particles, energycode)
+    
+    n = length(particles)
+
+    r0 = zeros(3, n)
+    v = zeros(3, n)
+
+    for i = 1:n
+        r0[:, i] = particles[i].r0
+        v[:, i] = particles[i].v
+    end
+
+    data = cat(r0, v, dims=3)
+    data = cat(data, fill(NaN,3,n), dims=3)
+    x = vec(data[1,:,:]')
+    y = vec(data[2,:,:]')
+    z = vec(data[3,:,:]')
+
+    p = plot(x, y, z, color=:yellow, legend=false)
+    return p
+end
+
 end # /module
