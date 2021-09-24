@@ -51,7 +51,7 @@ opticalaxis = [0;0;1]
 # build photons
 nγ = length(inenergy)
 
-sourcez = 5e-3
+sourcez = 5e-2
 v0 = [0;0;-1]
 ϕs = 2*π*rand(nγ)
 
@@ -73,6 +73,7 @@ end
 
 nθ = 10
 
+θs = LinRange(θrange[1], θrange[2], nθ)
 
 Rtop = 21e-6/2
 Rbottom = 10e-6/2
@@ -85,35 +86,55 @@ topz = bottomz + hbottom + sandwichheight
 
 pitch = 60e-6
 nholes = 200
-attenuatornormal = [0.0; 0.0; 1.0]
-attenuatorbottompoint = [0.0; 0.0; bottomz]
-attenuatortoppoint = attenuatorbottompoint + attenuatornormal*(topz + htop - bottomz)
 
-attenuatordensity = 2.3296e3 # kg/m^3, silicon
+attenuators = Array{Attenuator3D.PixelatedAttenuator, 1}(undef, nθ)
 
-attenuatortopholes = Array{Attenuator3D.Cylinder, 2}(undef, nholes, nholes)
-attenuatorbottomholes = Array{Attenuator3D.Cylinder, 2}(undef, nholes, nholes)
+for k = 1:nθ
+    rotation = Rotations.dcm1(θs[k])'
+    attenuatornormal = rotation*[0.0; 0.0; 1.0]
+    attenuatorbottompoint = [0.0; 0.0; bottomz]
+    attenuatortoppoint = attenuatorbottompoint + attenuatornormal*(topz + htop - bottomz)
 
-for i = 1:nholes
-    for j = 1:nholes
-        attenuatortopholes[i,j] = Attenuator3D.Cylinder(Rtop, htop, [(i-1)*pitch - (nholes-1)/2*pitch; (j-1)*pitch - (nholes-1)/2*pitch; topz], attenuatornormal)
+    attenuatordensity = 2.3296e3 # kg/m^3, silicon
 
-        attenuatorbottomholes[i,j] = Attenuator3D.Cylinder(Rbottom, hbottom, [(i-1)*pitch - (nholes-1)/2*pitch; (j-1)*pitch - (nholes-1)/2*pitch; bottomz], attenuatornormal)
+    attenuatortopholes = Array{Attenuator3D.Cylinder, 2}(undef, nholes, nholes)
+    attenuatorbottomholes = Array{Attenuator3D.Cylinder, 2}(undef, nholes, nholes)
+
+    for i = 1:nholes
+        for j = 1:nholes
+
+            topholecenter = rotation*[(i-1)*pitch - (nholes-1)/2*pitch; (j-1)*pitch - (nholes-1)/2*pitch; topz]
+            attenuatortopholes[i,j] = Attenuator3D.Cylinder(Rtop, htop, topholecenter, attenuatornormal)
+
+            bottomholecenter = rotation*[(i-1)*pitch - (nholes-1)/2*pitch; (j-1)*pitch - (nholes-1)/2*pitch; bottomz]
+            attenuatorbottomholes[i,j] = Attenuator3D.Cylinder(Rbottom, hbottom, bottomholecenter, attenuatornormal)
+        end
     end
+
+    attenuators[k] = Attenuator3D.PixelatedAttenuator(
+        cat(attenuatortopholes, attenuatorbottomholes, dims=3), 
+        attenuatordensity,
+        attenuatortoppoint,
+        attenuatorbottompoint,
+        attenuatornormal,
+        max(Rtop, Rbottom),
+        massattenuation
+    )
 end
 
-attenuator = Attenuator3D.PixelatedAttenuator(
-    cat(attenuatortopholes[:], attenuatorbottomholes[:], dims=1), 
-    attenuatordensity,
-    attenuatortoppoint,
-    attenuatorbottompoint,
-    attenuatornormal,
-    max(Rtop, Rbottom),
-    massattenuation
-)
-
-
-
 # plot
+vscale = 0.0004
 plotlyjs()
-Attenuator3D.plotparticles(γ[1:100:end],false)
+Attenuator3D.plotattenuator(attenuators[end])
+Attenuator3D.plotparticles!(γ[1:100:end],sourcez, false)
+
+# absorbprob = zeros(nγ, nθ)
+# for i = 1:nθ
+#     display("running "*string(θs[i])*" degree case")
+#     absorbprob[:,i] = Attenuator3D.batchphotons(γ,attenuators[i])
+#     display("case done, saving")
+
+#     df = DataFrame(energy=inenergy, angle=inangle, absorbprob=absorbprob[:,i])
+#     writepath = joinpath(@__DIR__, "../results/pitch_atten_"*string(θs[i])*"_rad.csv")
+#     CSV.write(writepath, df)
+# end
