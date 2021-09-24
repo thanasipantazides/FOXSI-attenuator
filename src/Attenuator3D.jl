@@ -16,7 +16,7 @@ struct Cylinder
     R   # radius
     h   # height
     c   # center point
-    a   # axis (unit)
+    a   # axis (unit) (NOTE: c + h*a yields a point on the opposite cap => this is an inward normal axis)
 end
 
 export PixelatedAttenuator
@@ -391,11 +391,11 @@ end
 
 export plotparticles
 """
-    plotparticles(particles::Array{Particle}, energycode)
+    plotparticles(particles::Array{Particle}, vscale, energycode)
 
-Plot particles as rays with option (set by `energycode` bit) to colorcode
+Plot particles as rays with option (set by `energycode` bit) to colorcode. Option `vscale` scales length of velocity.
 """
-function plotparticles(particles, energycode)
+function plotparticles(particles, vscale, energycode)
     
     n = length(particles)
 
@@ -404,7 +404,7 @@ function plotparticles(particles, energycode)
 
     for i = 1:n
         r0[:, i] = particles[i].r0
-        v[:, i] = particles[i].v
+        v[:, i] = vscale*particles[i].v
     end
 
     data = cat(r0, v, dims=3)
@@ -415,6 +415,185 @@ function plotparticles(particles, energycode)
 
     p = plot(x, y, z, color=:yellow, legend=false)
     return p
+end
+
+export plotparticles!
+"""
+    plotparticles!(particles::Array{Particle}, energycode)
+
+Plot particles as rays with option (set by `energycode` bit) to colorcode. Option `vscale` scales length of velocity.
+"""
+function plotparticles!(particles, vscale, energycode)
+    
+    n = length(particles)
+
+    r0 = zeros(3, n)
+    v = zeros(3, n)
+
+    for i = 1:n
+        r0[:, i] = particles[i].r0
+        v[:, i] = vscale*particles[i].v
+    end
+
+    data = cat(r0, v, dims=3)
+    data = cat(data, fill(NaN,3,n), dims=3)
+    x = vec(data[1,:,:]')
+    y = vec(data[2,:,:]')
+    z = vec(data[3,:,:]')
+
+    p = plot!(x, y, z, color=:yellow, legend=false)
+    return p
+end
+
+export plotattenuator
+"""
+    plotattenuator(attenuator::PixelatedAttenuator)
+
+Plot bounding box of attenuator.
+"""
+function plotattenuator(attenuator)
+    cornerstop = [attenuator.holes[1,1,1] attenuator.holes[1,end,1]; 
+                  attenuator.holes[end,1,1] attenuator.holes[end,end,1]]
+    cornersbottom = [attenuator.holes[1,1,end] attenuator.holes[1,end,end]; 
+                    attenuator.holes[end,1,end] attenuator.holes[end,end,end]]
+    corners = cat(cornerstop, cornersbottom, dims=3)
+
+    a = corners[1,1,1].c'*attenuator.normal
+    b = corners[1,1,2].c'*attenuator.normal
+
+    extremes = zeros(2,2,2,3)
+
+    if a > b
+        # front = a
+        if corners[1,1,1].a'*attenuator.normal > 0
+            # axis points along normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,1].c + corners[i,j,1].a*corners[i,j,1].h
+                    extremes[i,j,2,:] = corners[i,j,2].c
+                end
+            end
+        else
+            # axis points opposite normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,1].c
+                    extremes[i,j,2,:] = corners[i,j,2].c + corners[i,j,2].a*corners[i,j,2].h
+                end
+            end
+        end
+    else
+        # front = b
+        if corners[1,1,2].a'*attenuator.normal > 0
+            # axis points along normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,2].c + corners[i,j,2].a*corners[i,j,2].h
+                    extremes[i,j,2,:] = corners[i,j,1].c
+                end
+            end
+        else
+            # axis points opposite normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,2].c
+                    extremes[i,j,2,:] = corners[i,j,1].c + corners[i,j,1].a*corners[i,j,1].h
+                end
+            end
+        end
+    end
+
+    s = surface(0,0,0,legend=false)
+    for i = 1:3
+        for j = 1:2
+            if i == 1
+                surf = extremes[j,:,:,:]
+            elseif i == 2
+                surf = extremes[:,j,:,:]
+            elseif i == 3
+                surf = extremes[:,:,j,:]
+            end 
+            surface!(surf[:,:,1], surf[:,:,2], surf[:,:,3], color=:purple, alpha=0.5, legend=false)
+        end
+    end
+    
+    current()
+    return s
+end
+
+export plotattenuator
+"""
+    plotattenuator!(attenuator::PixelatedAttenuator)
+
+Plot bounding box of attenuator.
+"""
+function plotattenuator!(attenuator)
+    cornerstop = [attenuator.holes[1,1,1] attenuator.holes[1,end,1]; 
+                  attenuator.holes[end,1,1] attenuator.holes[end,end,1]]
+    cornersbottom = [attenuator.holes[1,1,end] attenuator.holes[1,end,end]; 
+                    attenuator.holes[end,1,end] attenuator.holes[end,end,end]]
+    corners = cat(cornerstop, cornersbottom, dims=3)
+
+    a = corners[1,1,1].c'*attenuator.normal
+    b = corners[1,1,2].c'*attenuator.normal
+
+    extremes = zeros(2,2,2,3)
+
+    if a > b
+        # front = a
+        if corners[1,1,1].a'*attenuator.normal > 0
+            # axis points along normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,1].c + corners[i,j,1].a*corners[i,j,1].h
+                    extremes[i,j,2,:] = corners[i,j,2].c
+                end
+            end
+        else
+            # axis points opposite normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,1].c
+                    extremes[i,j,2,:] = corners[i,j,2].c + corners[i,j,2].a*corners[i,j,2].h
+                end
+            end
+        end
+    else
+        # front = b
+        if corners[1,1,2].a'*attenuator.normal > 0
+            # axis points along normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,2].c + corners[i,j,2].a*corners[i,j,2].h
+                    extremes[i,j,2,:] = corners[i,j,1].c
+                end
+            end
+        else
+            # axis points opposite normal
+            for i = 1:2
+                for j = 1:2
+                    extremes[i,j,1,:] = corners[i,j,2].c
+                    extremes[i,j,2,:] = corners[i,j,1].c + corners[i,j,1].a*corners[i,j,1].h
+                end
+            end
+        end
+    end
+
+    for i = 1:3
+        for j = 1:2
+            if i == 1
+                surf = extremes[j,:,:,:]
+            elseif i == 2
+                surf = extremes[:,j,:,:]
+            elseif i == 3
+                surf = extremes[:,:,j,:]
+            end 
+            surface!(surf[:,:,1], surf[:,:,2], surf[:,:,3], color=:purple, alpha=0.5, legend=false)
+        end
+    end
+    
+    current()
+    return s
 end
 
 end # /module
