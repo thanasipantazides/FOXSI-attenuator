@@ -5,6 +5,7 @@ using StatsBase
 using CSV
 using DataFrames
 using Measures
+using LaTeXStrings
 
 include("../src/Rotations.jl")
 using .Rotations
@@ -95,6 +96,7 @@ print("\n")
 
 # plot
 gr()
+# plotlyjs()
 
 binskev = bins/1000
 binlabels = [string(Int(bin)) for bin in binskev]
@@ -167,36 +169,37 @@ end
 current()
 
 plot(h,p, layout=(1,2), size=(1280,400), margins=6mm, show=true)
-savefig(joinpath(@__DIR__, "../results/attenuator_angle.pdf"))
+savefig(joinpath(@__DIR__, "../results/attenuator_angle_optic.pdf"))
 
 
-plotlyjs()
 
+cscheme = cgrad(:roma, ncases-1, categorical=true, rev=true)
 plot(0,0)
 for i = 2:ncases
     nonemptys0 = findall(binnedprob[:,1] .!= 0 )
-    nonemptys10 = findall(binnedprob[:,i] .!= 0)
+    thisnonempty = findall(binnedprob[:,i] .!= 0)
 
-    intersectI = intersect(nonemptys0, nonemtpys10)
+    intersectI = intersect(nonemptys0, thisnonempty)
 
     fullbins = binskev[intersectI]
     weights0 = histin.weights[intersectI].*binnedprob[intersectI,1] 
-    weights10 = histin.weights[intersectI].*binnedprob[intersectI,i]
+    thisweight = histin.weights[intersectI].*binnedprob[intersectI,i]
 
     display(i)
     plot!(
             fullbins,
-            (weights10 - weights0)./ weights0,
+            (thisweight - weights0)./ weights0,
             xticks=([binskev .- 0.5;],binlabels),
             xlim=[0,15],
-            # ylims=[10^0,10^4],
-            # yticks=(10 .^ LinRange(0,4,5), ["1", "10", "100", "1,000", "10,000"]),
+            color=cscheme[i-1],
             xaxis=("Energy [keV]"),
-            yaxis=("Counts"),
-            label=nothing,
-            legend=true
-            # legend=false#"$(@sprintf("%.2f", θs[i]*180/π))"
+            yaxis=(L"\frac{T(\theta) - T_0}{T_0}"),
+            label=@sprintf("%.2f deg", θs[i]*180/π),
+            legend=:bottomright,
+            margins=6mm,
+            title="Normalized transmission, after optics"
     )
 end
-
 current()
+
+savefig(joinpath(@__DIR__, "../results/attenuator_angle_optic_normalize.pdf"))
