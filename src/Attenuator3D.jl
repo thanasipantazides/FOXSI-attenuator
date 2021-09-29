@@ -4,6 +4,8 @@ using SharedArrays
 using LinearAlgebra
 using Plots
 
+import SpecialFunctions
+
 export Particle
 struct Particle
     r0  # initial position
@@ -271,6 +273,18 @@ function batchphotons(photons, attenuator)
     end
 end
 
+export airyintensity
+"""
+    airyintensity(radius, angle, wavenumber)
+
+Get intensity fraction for diffracted light of given `wavenumber` projected at `angle` through hole of `radius` (following Airy's law for large distances).
+"""
+function airyintensity(radius, angle, wavelength)
+    x = 2*π*radius/wavelength*sin(angle)
+    I = (2*SpecialFunctions.besselj1(x)/x)^2
+    return I
+end
+
 export plotcyl
 """
     plotcyl(cylinder::Cylinder)
@@ -404,7 +418,7 @@ function plotparticles(particles, vscale, energycode)
 
     for i = 1:n
         r0[:, i] = particles[i].r0
-        v[:, i] = vscale*particles[i].v
+        v[:, i] = particles[i].r0 .+ vscale*particles[i].v
     end
 
     data = cat(r0, v, dims=3)
@@ -432,7 +446,7 @@ function plotparticles!(particles, vscale, energycode)
 
     for i = 1:n
         r0[:, i] = particles[i].r0
-        v[:, i] = vscale*particles[i].v
+        v[:, i] = particles[i].r0 .+ vscale*particles[i].v
     end
 
     data = cat(r0, v, dims=3)
