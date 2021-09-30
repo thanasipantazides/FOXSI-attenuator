@@ -84,14 +84,16 @@ function cylinderentryexit(particle, cylinder)
     R = cylinder.R
     h = cylinder.h
 
-    ttop = (c'*a - r0'*a)/(v'*a)
-    tbottom = (c'*a + h - r0'*a)/(v'*a)
+    vdir = v/norm(v)
 
-    topcapradius = norm(r0 + v*ttop - c)
-    bottomcapradius = norm(r0 + v*tbottom - c - a*h)
+    ltop = norm(v)*(c'*a - r0'*a)/(v'*a)
+    lbottom = norm(v)*(c'*a + h - r0'*a)/(v'*a)
 
-    qa = v'*v - (v'*a)^2
-    qb = 2*((r0'*v - c'*v) - ((v'*a)*(r0'*a - c'*a)))
+    topcapradius = norm(r0 + vdir*ltop - c)
+    bottomcapradius = norm(r0 + vdir*lbottom - c - a*h)
+
+    qa = 1 - (v'*a/norm(v))^2
+    qb = 2*(r0' - c' + (a'*c - a'*r0)*a')*vdir
     qc = norm(r0 - c)^2 - (r0'*a - c'*a)^2 - R^2
 
     # particle coaxial with cylinder:
@@ -100,9 +102,9 @@ function cylinderentryexit(particle, cylinder)
         if topcapradius ≤ R
             if bottomcapradius ≤ R
                 # rectify to zero if particle starts within cylinder
-                ttop = max(ttop, 0)
-                tbottom = max(tbottom, 0)
-                return (min(ttop, tbottom), max(ttop, tbottom))
+                ltop = max(ltop, 0)
+                lbottom = max(lbottom, 0)
+                return (min(ltop, lbottom), max(ltop, lbottom))
             else
                 error("particle supposedly parallel to cylinder axis")
             end
@@ -124,32 +126,32 @@ function cylinderentryexit(particle, cylinder)
             root1 = real(root1)
             root2 = real(root2)
             # hits infinite cylinder somewhere
-            t1 = min(root1, root2)
-            t2 = max(root1, root2)
+            l1 = min(root1, root2)
+            l2 = max(root1, root2)
 
-            # list of all intersection times with cap planes and cylinder
-            dt = [tbottom, ttop, t1, t2]
+            # list of all intersection lengths with cap planes and cylinder
+            dl = [lbottom, ltop, l1, l2]
             # order intersection times
-            I = sortperm(dt)
+            I = sortperm(dl)
 
-            # check if first two intersection times are with cylinder (t1, t2)
+            # check if first two intersection lengths are with cylinder (t1, t2)
             if length(intersect(I[1:2], [3, 4])) == 2
                 # miss
                 return (0, 0)
             end
-            # check if last two intersection times are with cylinder (t1, t2)
+            # check if last two intersection lengths are with cylinder (t1, t2)
             if length(intersect(I[3:4], [3, 4])) == 2
                 # miss
                 return (0, 0)
             end
 
             # if you've made it this far, cylinder is hit somewhere
-            tin = dt[I[2]]
-            tout = dt[I[3]]
+            lin = dl[I[2]]
+            lout = dl[I[3]]
 
-            tin = max(tin, 0)
-            tout = max(tout, 0)
-            return (tin, tout)
+            lin = max(lin, 0)
+            lout = max(lout, 0)
+            return (lin, lout)
 
         # miss altogether (complex roots for intersection with cylinder) 
         else
@@ -165,7 +167,7 @@ export lengthsinattenuator
 Get distances a `photon::Particle` travels within an `attenuator::PixelatedAttenuator` which has cylinders cut out of it. 
 """
 function lengthsinattenuator(photon, attenuator)
-    topcylinderstimes = Array{Float64}(undef, 0, 2)
+    topcylinderslengths = Array{Float64}(undef, 0, 2)
     # filter cylinders along path
     hits = falses(length(attenuator.holes[:]))
     for c = 1:length(attenuator.holes[:])
@@ -179,40 +181,40 @@ function lengthsinattenuator(photon, attenuator)
         
         # if this photon flies within this cylinder's radius, check for collision
         if hits[c]
-            (tin, tout) = cylinderentryexit(photon, attenuator.holes[c])
+            (lin, lout) = cylinderentryexit(photon, attenuator.holes[c])
 
             # make sure it actually hits cylinder
-            if tout - tin > 0
-                topcylinderstimes = cat(topcylinderstimes, [tin tout], dims=1)
+            if lout - lin > 0
+                topcylinderslengths = cat(topcylinderslengths, [lin lout], dims=1)
             end
         end
     end
     
     # sort cylinders visited in order of visit time (increasing distance from r0 along v)
-    sortedcylinderstimes = zeros(size(topcylinderstimes))
-    if length(topcylinderstimes[:,1]) > 1
-        topcylinderorder = sortperm(topcylinderstimes[:,1])
-        sortedcylinderstimes = topcylinderstimes[topcylinderorder,:]
+    sortedcylinderslengths = zeros(size(topcylinderslengths))
+    if length(topcylinderslengths[:,1]) > 1
+        topcylinderorder = sortperm(topcylinderslengths[:,1])
+        sortedcylinderslengths = topcylinderslengths[topcylinderorder,:]
     else
-        sortedcylinderstimes = topcylinderstimes
+        sortedcylinderslengths = topcylinderslengths
     end
     
-    # times at which photon hits attenuator top surface and bottom surface
-    tslabbottom = (attenuator.bottompoint'*attenuator.normal - photon.r0'*attenuator.normal)/(photon.v'*attenuator.normal)
-    tslabtop = (attenuator.toppoint'*attenuator.normal - photon.r0'*attenuator.normal)/(photon.v'*attenuator.normal)
+    # lengths at which photon hits attenuator top surface and bottom surface
+    lslabbottom = (attenuator.bottompoint'*attenuator.normal - photon.r0'*attenuator.normal)/(photon.v'*attenuator.normal)*norm(photon.v)
+    lslabtop = (attenuator.toppoint'*attenuator.normal - photon.r0'*attenuator.normal)/(photon.v'*attenuator.normal)*norm(photon.v)
 
-    tslabin = min(tslabbottom, tslabtop)
-    tslabout = max(tslabbottom, tslabtop)
+    lslabin = min(lslabbottom, lslabtop)
+    lslabout = max(lslabbottom, lslabtop)
 
-    if length(sortedcylinderstimes) > 0
+    if length(sortedcylinderslengths) > 0
         # times spent within attenuator material (complement of time spent in cylinders)
-        timediffs = [sortedcylinderstimes[:,1]; tslabout] - [tslabin; sortedcylinderstimes[:,2]]
+        lengthdiffs = [sortedcylinderslengths[:,1]; lslabout] - [lslabin; sortedcylinderslengths[:,2]]
     else
-        timediffs = tslabout - tslabin
+        lengthdiffs = lslabout - lslabin
     end
 
     # path lengths in material
-    lengths = norm(photon.v).*timediffs
+    lengths = lengthdiffs
 
     return lengths
 end
@@ -602,12 +604,11 @@ function plotattenuator!(attenuator)
             elseif i == 3
                 surf = extremes[:,:,j,:]
             end 
-            surface!(surf[:,:,1], surf[:,:,2], surf[:,:,3], color=:purple, alpha=0.5, legend=false)
+            s = surface!(surf[:,:,1], surf[:,:,2], surf[:,:,3], color=:purple, alpha=0.5, legend=false)
+            current()
+            return s
         end
     end
-    
-    current()
-    return s
 end
 
 end # /module
