@@ -13,3 +13,4 @@ doc/*.gz
 
 # this project:
 voronoi.jl
+results/temp*
