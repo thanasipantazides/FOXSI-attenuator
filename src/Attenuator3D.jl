@@ -226,13 +226,13 @@ Return the probability of a photon::Particle being absorbed in attenuator::Pixel
 function absorptionprobability(photon, attenuator)
     lengths = lengthsinattenuator(photon, attenuator)
     if length(lengths) != 0
-        transmissionlikelihoods = zeros(size(lengths))
+        transmissionlikelihoods = zeros(BigFloat, length(lengths))
         for i = 1:length(lengths)
             # interpolate attenuation coefficients from table data:
             attenuationcoeff = interpolateattenuation(photon.E, attenuator.massattenuation)
             
             # probability of passing through material:
-            transmissionlikelihoods[i] = exp(-lengths[i]/attenuationcoeff)
+            transmissionlikelihoods[i] = exp(BigFloat(-lengths[i]/attenuationcoeff))
         end
 
         # complement of total transmission likelihood is absorption likelihood
@@ -244,13 +244,39 @@ function absorptionprobability(photon, attenuator)
     end
 end
 
+export transmissionprobability
+"""
+    transmissionprobability(photon, attenuator)
+
+Return the probability of a photon::Particle being transmitted through attenuator::PixelatedAttenuator.
+"""
+function transmissionprobability(photon, attenuator)
+    lengths = lengthsinattenuator(photon, attenuator)
+    if length(lengths) != 0
+        transmissionlikelihoods = zeros(BigFloat, length(lengths))
+        for i = 1:length(lengths)
+            # interpolate attenuation coefficients from table data:
+            attenuationcoeff = interpolateattenuation(photon.E, attenuator.massattenuation)
+            
+            # probability of passing through material:
+            transmissionlikelihoods[i] = exp(BigFloat(-lengths[i]*attenuationcoeff))
+        end
+
+        # get total transmission likelihood
+        return prod(transmissionlikelihoods)
+        
+    else
+        return 1.0
+    end
+end
+
 export batchphotons
 """
     batchphotons(photons, attenuator)
 
 Compute absorption likelihood for a set of `photons` passing through `attenuator`. If multiple processes are available, computation will be parallelized. To execute in parallel, use the `Distributed` module in the calling context, add processes using `addprocs(n)`, and include this source with the `@everywhere macro` before `using` the module:
     
-    @everywhere include("path_to_this_file.jl")
+    @everywhere include("Attenuator3D.jl")
     using .Attenuator3D
 """
 function batchphotons(photons, attenuator)
