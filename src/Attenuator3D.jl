@@ -232,7 +232,7 @@ function absorptionprobability(photon, attenuator)
             attenuationcoeff = interpolateattenuation(photon.E, attenuator.massattenuation)
             
             # probability of passing through material:
-            transmissionlikelihoods[i] = exp(BigFloat(-lengths[i]/attenuationcoeff))
+            transmissionlikelihoods[i] = exp(BigFloat(-lengths[i]*attenuationcoeff))
         end
 
         # complement of total transmission likelihood is absorption likelihood
@@ -286,14 +286,14 @@ function batchphotons(photons, attenuator)
     
         # parallel loop over photons
         @inbounds @sync @distributed for i = 1:length(photons)
-            absorblikelihood[i] = absorptionprobability(photons[i], attenuator)
+            absorblikelihood[i] = transmissionprobability(photons[i], attenuator)
         end
         return Array(absorblikelihood)
     else
         absorblikelihood = zeros(size(photons))
 
         @inbounds for i = 1:length(photons)
-            absorblikelihood[i] = absorptionprobability(photons[i], attenuator)
+            absorblikelihood[i] = transmissionprobability(photons[i], attenuator)
         end
         return absorblikelihood
     end

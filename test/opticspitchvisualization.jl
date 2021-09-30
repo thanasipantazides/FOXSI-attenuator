@@ -79,7 +79,7 @@ for i = 1:ncases
         # WATCH FOR OFF-BY-ONE
 
         if j < length(binleft)
-            binnedprob[j,i] = sum(transmitprob[binleft[j]:binleft[j+1], i])/(binleft[j+1] - binleft[j] + 1)
+            binnedprob[j,i] = sum(transmitprob[binleft[j]:(binleft[j+1] - 1), i])/(binleft[j+1] - binleft[j])
         else
             binnedprob[j,i] = sum(transmitprob[binleft[j]:length(energy), i])/(length(energy) - binleft[j] + 1)
         end

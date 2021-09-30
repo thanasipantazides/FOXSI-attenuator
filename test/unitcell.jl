@@ -103,7 +103,7 @@ plot(boundx, boundy, boundz, color=:blue, legend=false)
 
 scale = upz/max(absorbprob...)
 offset = max(scale.*absorbprob...)
-# surface!(x, y, scale.*absorbprob .- offset, color=:thermal, alpha=1.0, legend=false)
+surface!(x, y, scale.*absorbprob .- offset, color=:thermal, alpha=1.0, legend=false)
 
 scatter!(x, y, γz.*ones(nγ,nγ), color=:yellow, markersize=1, legend=false)
 
