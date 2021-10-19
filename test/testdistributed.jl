@@ -1,4 +1,4 @@
-using Distributed
+using Distributed, DistributedArrays
 
 # add a process for each CPU core:
 if nprocs() < length(Sys.cpu_info()) + 1
@@ -10,6 +10,7 @@ using Plots
 using StatsBase
 using CSV
 using DataFrames
+using Serialization
 
 include("../src/Rotations.jl")
 using .Rotations
@@ -17,6 +18,7 @@ using .Rotations
 # include the ray tracing library on all cores:
 @everywhere include("../src/Attenuator3D.jl")
 using .Attenuator3D
+
 
 
 # import attenuation length data from LBNL:
@@ -49,23 +51,26 @@ inangle = inangle[keepI]
 opticalaxis = [0;0;1]
 
 # build photons
-nγ = Int(1e5)
+nγ = 1001
 
 sourcez = 5e-2
 v0 = [0;0;-1]
-xs = 2e-3 * rand(nγ) .- 1e-3
-ys = 2e-3 * rand(nγ) .- 1e-3
-Es = (max(inenergy...) - min(inenergy...))*rand(nγ) .+ min(inenergy...)
+ϕs = 2*π*rand(nγ)
 
 γ = Array{Attenuator3D.Particle, 1}(undef, nγ)
 
 for i = 1:nγ
-    r0 = [xs[i]; ys[i]; sourcez]
-    E = Es[i]
+    r0 = [0; 0; sourcez]
+    v = Rotations.dcm3(ϕs[i])'*Rotations.dcm1(inangle[i])'*v0
+    E = inenergy[i]
 
-    γ[i] = Attenuator3D.Particle(r0, v0, E)
+    γ[i] = Attenuator3D.Particle(r0, v, E)
 end
 
+# batchI = Attenuator3D.shufflesample(γ)
+# γ = γ[batchI]
+# inenergy = inenergy[batchI]
+# inangle = inangle[batchI]
 
 
 # build attenuator:
@@ -123,20 +128,25 @@ for k = 1:nθ
     )
 end
 
-# plot
-# vscale = 0.0004
-# plotlyjs()
-# Attenuator3D.plotattenuator(attenuators[end])
-# Attenuator3D.plotparticles!(γ[1:100:end],sourcez, false)
+attenuator = attenuators[1]
 
-transmitprob = zeros(BigFloat, nγ, nθ)
-for i = 1:nθ
-    display("running "*string(θs[i])*" degree case")
-    transmitprob[:,i] = Attenuator3D.batchphotons(γ,attenuators[i])
-    display("case done, saving")
+# DEPRECATED:
+# @time τdist = Attenuator3D.distributed_batchphotons(γ, attenuator)
+# @time τold = Attenuator3D.batchphotons(γ, attenuator)
+# @time αdist = Attenuator3D.distributed_batchphotons(γ, attenuator)
+# @time αold = Attenuator3D.batchphotons(γ, attenuator)
 
-    savedata = [Es xs ys transmitprob[:,i]]
 
-    writepath = joinpath(@__DIR__, "../results/pre_opt_pitch_atten_"*string(θs[i])*"_rad.serial")
-    serialize(writepath, savedata)
-end
+
+# transmitprob = zeros(BigFloat, nγ, nθ)
+# for i = 1:2
+#     display("running "*string(θs[i])*" degree case")
+#     transmitprob[:,i] = Attenuator3D.distributed_batchphotons(γ,attenuators[i])
+#     display("case done, saving")
+
+#     savedata = [inenergy inangle transmitprob[:,i]]
+
+#     # writepath = joinpath(@__DIR__, "../results/small_pitch_atten_"*string(θs[i])*"_rad.serial")
+#     writepath = joinpath(@__DIR__, "../results/tempfile"*string(θs[i])*"_rad.serial")
+#     serialize(writepath, savedata)
+# end

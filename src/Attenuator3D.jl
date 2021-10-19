@@ -1,8 +1,10 @@
 module Attenuator3D
-using Distributed
+using Distributed, DistributedArrays
 using SharedArrays
 using LinearAlgebra
+using Random
 using Plots
+# using ArbNumerics
 
 import SpecialFunctions
 
@@ -40,6 +42,42 @@ Get skew-symmetric matrix for crossing `u` with another 3-vector. I.e.: so3(u)*v
 """
 function so3(u)
     return [0 -u[3] u[2]; u[3] 0 -u[1]; -u[2] u[1] 0]
+end
+
+export sliceindices
+"""
+    sliceindices(array, n)
+
+Returns n linear index pairs such that `array` is split into n (roughly) equal pieces.  
+"""
+function sliceindices(array, n)
+    N = length(array)
+    k = N ÷ n
+    if k == 0
+        error("slicing too much")
+    end
+    m = rem(N, n)
+
+    # [array[(i*k+min(i, m)):((i+1)*k+min(i+1, m))] for i = 1:n]
+    starts = [1 + i*k + min(i,m) for i = 0:n-1]
+    ends = ends = [i*k + min(i,m) for i = 1:n]
+
+    return [starts ends]
+end
+
+export shufflesample
+"""
+    shufflesample(array)
+
+Returns indeces sampling `array` so that the returned array has length which is the largest multiple of `nworkers()` less than or equal to the length of the original array.
+"""
+function shufflesample(array)
+    N = length(array[:])
+    n = nworkers()
+    maxI = floor(Int, N / n)*n
+    shuff = randperm(N)
+
+    return shuff[1:maxI]
 end
 
 export interpolateattenuation
@@ -270,11 +308,43 @@ function transmissionprobability(photon, attenuator)
     end
 end
 
+# export batchphotons
+# """
+# ----DEPRECATED-----------------------
+#     batchphotons(photons, attenuator)
+
+# Compute absorption likelihood for a set of `photons` passing through `attenuator`. If multiple processes are available, computation will be parallelized. To execute in parallel, use the `Distributed` module in the calling context, add processes using `addprocs(n)`, and include this source with the `@everywhere macro` before `using` the module:
+    
+#     @everywhere include("Attenuator3D.jl")
+#     using .Attenuator3D
+# """
+# function batchphotons(photons, attenuator)
+#     # check if multiple processes available:
+#     if nprocs() > 1
+#         transmitlikelihood = SharedArray{Float64}(size(photons))
+    
+#         # parallel loop over photons
+#         @inbounds @sync @distributed for i = 1:length(photons)
+#             transmitlikelihood[i] = transmissionprobability(photons[i], attenuator)
+#         end
+#         return Array(transmitlikelihood)
+#     else
+#         transmitlikelihood = zeros(size(photons))
+
+#         @inbounds for i = 1:length(photons)
+#             transmitlikelihood[i] = transmissionprobability(photons[i], attenuator)
+#         end
+#         return transmitlikelihood
+#     end
+# end
+
+
+# NEW =======================================================================>
 export batchphotons
 """
     batchphotons(photons, attenuator)
 
-Compute absorption likelihood for a set of `photons` passing through `attenuator`. If multiple processes are available, computation will be parallelized. To execute in parallel, use the `Distributed` module in the calling context, add processes using `addprocs(n)`, and include this source with the `@everywhere macro` before `using` the module:
+Compute absorption likelihood for a set of `photons` passing through `attenuator`. If multiple processes are available, computation will be parallelized. To execute in parallel, use the `Distributed` module in the calling context, add processes using `addprocs(n)`, and include this source with the `@everywhere` macro before `using` the module:
     
     @everywhere include("Attenuator3D.jl")
     using .Attenuator3D
@@ -282,20 +352,43 @@ Compute absorption likelihood for a set of `photons` passing through `attenuator
 function batchphotons(photons, attenuator)
     # check if multiple processes available:
     if nprocs() > 1
-        absorblikelihood = SharedArray{Float64}(size(photons))
-    
-        # parallel loop over photons
-        @inbounds @sync @distributed for i = 1:length(photons)
-            absorblikelihood[i] = transmissionprobability(photons[i], attenuator)
+        # need to factor jobsize by nworkers()
+        spares = nworkers() - rem(length(photons), nworkers())
+        # populate extra "dummy" photons to make array correct size
+        appendix = Array{Attenuator3D.Particle}(undef, spares, 1)
+        fill!(appendix, photons[1])
+        inphotons = [photons[:]; appendix]
+        
+        # size of batch to run on each worker
+        batchsize = length(inphotons[:]) ÷ nworkers()
+
+        if rem(length(inphotons[:]), nworkers()) != 0
+            error("Cannot distribute job to number of workers")
         end
-        return Array(absorblikelihood)
+
+        # shape array so each worker gets one column
+        inphotons = reshape(inphotons, batchsize, nworkers())
+        # make distributed array for result on all workers
+        transmitlikelihood = dzeros(BigFloat, size(inphotons), workers(), [1, nworkers()])
+
+        @sync @distributed for j in 1:nworkers()
+            localtransmitlikelihood = localpart(transmitlikelihood)
+            locali = DistributedArrays.localindices(transmitlikelihood)
+
+            for i = 1:length(localtransmitlikelihood)
+                localtransmitlikelihood[i] = transmissionprobability(inphotons[i,locali[2][1]], attenuator)
+            end
+        end
+
+        return Array(transmitlikelihood[1:(end - spares)])
+
     else
-        absorblikelihood = zeros(size(photons))
+        transmitlikelihood = zeros(size(photons))
 
         @inbounds for i = 1:length(photons)
-            absorblikelihood[i] = transmissionprobability(photons[i], attenuator)
+            transmitlikelihood[i] = transmissionprobability(photons[i], attenuator)
         end
-        return absorblikelihood
+        return transmitlikelihood
     end
 end
 
@@ -311,6 +404,7 @@ function airyintensity(radius, angle, wavelength)
     return I
 end
 
+# plotting utilities
 export plotcyl
 """
     plotcyl(cylinder::Cylinder)
