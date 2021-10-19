@@ -123,12 +123,7 @@ for k = 1:nθ
     )
 end
 
-# plot
-# vscale = 0.0004
-# plotlyjs()
-# Attenuator3D.plotattenuator(attenuators[end])
-# Attenuator3D.plotparticles!(γ[1:100:end],sourcez, false)
-
+# process photons
 transmitprob = zeros(BigFloat, nγ, nθ)
 for i = 1:nθ
     display("running "*string(θs[i])*" degree case")

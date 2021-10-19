@@ -15,8 +15,6 @@ ncases = 0
 θs = []
 energy = []
 transmitprob = []
-# transmitprob = Array{BigFloat, 2}(undef, 1,1)
-dfs = Array{DataFrame, 1}(undef, 1)
 for file in resultfiles
     if startswith(file, "pre_opt_pitch_atten_") && endswith(file, ".serial")
         ncases = ncases + 1
@@ -28,22 +26,18 @@ for file in resultfiles
         
         datamat = deserialize(joinpath(@__DIR__, "../results/"*file))
         display(file)
-        # df = CSV.read(joinpath(@__DIR__, "../results/"*file), DataFrame)
 
         # store file data
         if ncases == 1
             # store energy, angle (should be same for all runs)
-            # energy = df.energy
             energy = datamat[:,1]
             angle = datamat[:,2]
 
-            # start absorbprob
-            # absorbprob = df.absorbprob
+            # start transmitprob
             transmitprob = datamat[:,4]
 
         else
-            # horzcat to absorbprob
-            # absorbprob = cat(absorbprob, df.absorbprob, dims=2)
+            # horzcat to transmitprob
             transmitprob = cat(transmitprob, datamat[:,4], dims=2)
 
         end
@@ -80,13 +74,9 @@ baseprob = ones(length(bins), 1)
 baseweights = zeros(length(bins), 1)
 binnedprob = zeros(length(bins), ncases)
 nonzfrac = zeros(length(bins), ncases)
-maxprob = zeros(length(bins), ncases)
-minprob = zeros(length(bins), ncases)
 
 for i = 1:ncases
     for j = 1:length(binleft)
-        # WATCH FOR OFF-BY-ONE
-
         if j < length(binleft)
             thisprobset = transmitprob[binleft[j]:(binleft[j+1] - 1), i]
             bincount = binleft[j+1] - binleft[j]
@@ -103,9 +93,6 @@ for i = 1:ncases
             binnedprob[j,i] = sum(thisprobset)/bincount
             nonzfrac[j,i] = length(findall(thisprobset .!= 0))/bincount
 
-            maxprob[j,i] = max(thisprobset...)
-
-            minprob[j,i] = min(thisprobset...)
         end
     end
 end
@@ -126,8 +113,6 @@ binskev = bins/1000
 # binlabels = [string(Int(bin)) for bin in binskev]
 binlabels = [string(round(bin,digits=0)) for bin in binskev]
 
-# histin = fit(Histogram, energy/1000, nbins=length(bins))
-
 h = bar(
             binskev,
             baseweights.*baseprob,
@@ -140,14 +125,10 @@ h = bar(
 )
 
 anglerange = [1, 3, 10]
-# FIX THIS TO MAKE VISIBLE
 for i = anglerange
-    display(i)
-    # nonemptys = findall(binnedprob[:,i] .!= 0)
     fullbins = binskev
     weights = baseweights.*binnedprob[:,i]
 
-    # display(length(nonemptys)/length(bins))
     h = bar!(
         fullbins,
         weights,

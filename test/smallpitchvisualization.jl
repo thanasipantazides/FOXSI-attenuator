@@ -15,8 +15,6 @@ ncases = 0
 θs = []
 energy = []
 transmitprob = []
-# transmitprob = Array{BigFloat, 2}(undef, 1,1)
-dfs = Array{DataFrame, 1}(undef, 1)
 for file in resultfiles
     if startswith(file, "small_pitch_atten_") && endswith(file, ".serial")
         ncases = ncases + 1
@@ -27,23 +25,18 @@ for file in resultfiles
         append!(θs, parse(Float64, file[starti:endi]))
         
         datamat = deserialize(joinpath(@__DIR__, "../results/"*file))
-        display(file)
-        # df = CSV.read(joinpath(@__DIR__, "../results/"*file), DataFrame)
 
         # store file data
         if ncases == 1
             # store energy, angle (should be same for all runs)
-            # energy = df.energy
             energy = datamat[:,1]
             angle = datamat[:,2]
 
-            # start absorbprob
-            # absorbprob = df.absorbprob
+            # start transmitprob
             transmitprob = datamat[:,3]
 
         else
-            # horzcat to absorbprob
-            # absorbprob = cat(absorbprob, df.absorbprob, dims=2)
+            # horzcat to transmitprob
             transmitprob = cat(transmitprob, datamat[:,3], dims=2)
 
         end
@@ -61,8 +54,6 @@ energy = energy[sortE]
 for i = 1:ncases
     transmitprob[:,i] = transmitprob[sortE,i]
 end
-
-# transmitprob = 1 .- absorbprob
 
 
 
@@ -82,13 +73,9 @@ baseprob = ones(length(bins), 1)
 baseweights = zeros(length(bins), 1)
 binnedprob = zeros(length(bins), ncases)
 nonzfrac = zeros(length(bins), ncases)
-maxprob = zeros(length(bins), ncases)
-minprob = zeros(length(bins), ncases)
 
 for i = 1:ncases
     for j = 1:length(binleft)
-        # WATCH FOR OFF-BY-ONE
-
         if j < length(binleft)
             thisprobset = transmitprob[binleft[j]:(binleft[j+1] - 1), i]
             bincount = binleft[j+1] - binleft[j]
@@ -105,9 +92,6 @@ for i = 1:ncases
             binnedprob[j,i] = sum(thisprobset)/bincount
             nonzfrac[j,i] = length(findall(thisprobset .!= 0))/bincount
 
-            maxprob[j,i] = max(thisprobset...)
-
-            minprob[j,i] = min(thisprobset...)
         end
     end
 end
@@ -128,8 +112,6 @@ binskev = bins/1000
 # binlabels = [string(Int(bin)) for bin in binskev]
 binlabels = [string(round(bin,digits=1)) for bin in binskev]
 
-# histin = fit(Histogram, energy/1000, nbins=length(bins))
-
 h = bar(
             binskev,
             baseweights.*baseprob,
@@ -142,14 +124,10 @@ h = bar(
 )
 
 anglerange = [1, 3, 10]
-# FIX THIS TO MAKE VISIBLE
 for i = anglerange
-    display(i)
-    # nonemptys = findall(binnedprob[:,i] .!= 0)
     fullbins = binskev
     weights = baseweights.*binnedprob[:,i]
 
-    # display(length(nonemptys)/length(bins))
     h = bar!(
         fullbins,
         weights,
@@ -158,7 +136,7 @@ for i = anglerange
         orientation=:vertical,
         linecolor=nothing,
         xticks=([binskev;],binlabels),
-        yticks=([0:5e3:15e3;], ["0", "5,000", "10,000", "15,000"]),
+        yticks=([0:5e3:e3;], ["0", "5,000", "10,000", "15,000"]),
         xaxis=("Energy [keV]"),
         yaxis=("Counts"),
         label="attenuator angle: "*@sprintf("%.1f deg",θs[i]*180/π),
@@ -233,94 +211,3 @@ plot!([0,30], -0.05*ones(2,1), color=:black,width=2, label=nothing)
 current()
 
 savefig(joinpath(@__DIR__, "../results/attenuator_small_angle_normalize.pdf"))
-
-
-plotlyjs()
-# plot(0,0)
-for i = [2,2]
-    nonemptys0 = findall(binnedprob[:,1] .!= 0 )
-    thisnonempty = findall(binnedprob[:,i] .!= 0)
-
-    intersectI = intersect(nonemptys0, thisnonempty)
-
-    max0 = maxprob[intersectI,1]
-    thismax = maxprob[intersectI,i]
-    min0 = minprob[intersectI,1]
-    thismin = minprob[intersectI,i]
-
-    fullbins = binskev[intersectI]
-
-    weights0 = baseweights[intersectI].*binnedprob[intersectI,1]
-    thisweight = baseweights[intersectI].*binnedprob[intersectI,i]
-
-    maxweights0 = baseweights[intersectI].*max0
-    thismaxweight = baseweights[intersectI].*thismax
-    minweights0 = baseweights[intersectI].*min0
-    thisminweight = baseweights[intersectI].*thismin
-
-    minvalue = thisminweight ./ maxweights0 .- 1
-    maxvalue = thismaxweight ./ minweights0 .- 1
-
-    # plot!(
-    #         fullbins,
-    #         maxvalue,
-    #         fillrange=minvalue,
-    #         xticks=([binskev .- 0.5;],binlabels),
-    #         xlim=[0,15],
-    #         color=cscheme[i-1],
-    #         alpha=0.4,
-    #         xaxis=("Energy [keV]"),
-    #         yaxis=(L"\frac{T(\theta) - T_0}{T_0}"),
-    #         label=nothing,
-    #         margins=6mm,
-    # )
-
-    # plot!(
-    #         fullbins,
-    #         thisweight .- weights0,
-    #         # xticks=([binskev .- 0.5;],binlabels),
-    #         xlim=[0,29],
-    #         color=cscheme[i-1],
-    #         xaxis=("Energy [keV]"),
-    #         yaxis=(L"\frac{T(\theta) - T_0}{T_0}"),
-    #         label=@sprintf("%.2f deg", θs[i]*180/π),
-    #         legend=false,
-    #         margins=6mm,
-    #         title="Normalized transmission, after optics"
-    # )
-
-
-    # plotting against angle
-    # plot!(
-    #         fullbins,
-    #         # angle[sortE][binleft],
-    #         (thisweight .- weights0)./weights0,
-    #         # xticks=([binskev .- 0.5;],binlabels),
-    #         xlim=[0,29],
-    #         color=cscheme[i-1],
-    #         xaxis=("Energy [keV]"),
-    #         yaxis=(L"\frac{T(\theta) - T_0}{T_0}"),
-    #         label=@sprintf("%.2f deg", θs[i]*180/π),
-    #         legend=false,
-    #         margins=6mm,
-    #         title="Normalized transmission, after optics"
-    # )
-
-    # plotting nonzero elements per bin
-    # plot!(
-    #         binskev,
-    #         nonzfrac[:,i],
-    #         # xticks=([binskev .- 0.5;],binlabels),
-    #         xlim=[0,29],
-    #         color=cscheme[i-1],
-    #         xaxis=("Energy [keV]"),
-    #         yaxis=(L"\frac{T(\theta) - T_0}{T_0}"),
-    #         label=@sprintf("%.2f deg", θs[i]*180/π),
-    #         legend=false,
-    #         margins=6mm,
-    #         title="Normalized transmission, after optics"
-    # )
-end
-current()
-
-# savefig(joinpath(@__DIR__, "../results/attenuator_small_angle_bounds.pdf"))

@@ -15,8 +15,7 @@ ncases = 0
 θs = []
 energy = []
 angle = []
-absorbprob = []
-dfs = Array{DataFrame, 1}(undef, 1)
+transmitprob = []
 for file in resultfiles
     if endswith(file, ".serial")
         ncases = ncases + 1
@@ -27,7 +26,6 @@ for file in resultfiles
         append!(θs, parse(Float64, file[starti:endi]))
         
         datamat = deserialize(joinpath(@__DIR__, "../results/"*file))
-        # df = CSV.read(joinpath(@__DIR__, "../results/"*file), DataFrame)
 
         # store file data
         if ncases == 1
@@ -35,10 +33,10 @@ for file in resultfiles
             energy = datamat[:,1]
             angle = datamat[:,2]
             
-            # start absorbprob
+            # start transmitprob
             transmitprob = datamat[:,3]
         else
-            # horzcat to absorbprob
+            # horzcat to transmitprob
             transmitprob = cat(transmitprob, datamat[:,3], dims=2)
         end
     end
@@ -75,13 +73,9 @@ baseprob = ones(length(bins), 1)
 baseweights = zeros(length(bins), 1)
 binnedprob = zeros(length(bins), ncases)
 nonzfrac = zeros(length(bins), ncases)
-maxprob = zeros(length(bins), ncases)
-minprob = zeros(length(bins), ncases)
 
 for i = 1:ncases
     for j = 1:length(binleft)
-        # WATCH FOR OFF-BY-ONE
-
         if j < length(binleft)
             thisprobset = transmitprob[binleft[j]:(binleft[j+1] - 1), i]
             bincount = binleft[j+1] - binleft[j]
@@ -98,9 +92,6 @@ for i = 1:ncases
             binnedprob[j,i] = sum(thisprobset)/bincount
             nonzfrac[j,i] = length(findall(thisprobset .!= 0))/bincount
 
-            maxprob[j,i] = max(thisprobset...)
-
-            minprob[j,i] = min(thisprobset...)
         end
     end
 end
@@ -121,8 +112,6 @@ binskev = bins/1000
 # binlabels = [string(Int(bin)) for bin in binskev]
 binlabels = [string(round(bin,digits=1)) for bin in binskev]
 
-# histin = fit(Histogram, energy/1000, nbins=length(bins))
-
 h = bar(
             binskev,
             baseweights.*baseprob,
@@ -135,7 +124,6 @@ h = bar(
 )
 
 anglerange = [1,3,10]
-# FIX THIS TO MAKE VISIBLE
 for i = anglerange
     nonemptys = findall(binnedprob[:,i] .!= 0)
     fullbins = binskev[nonemptys]
