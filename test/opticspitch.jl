@@ -10,6 +10,7 @@ using Plots
 using StatsBase
 using CSV
 using DataFrames
+using Serialization
 
 include("../src/Rotations.jl")
 using .Rotations
@@ -23,7 +24,7 @@ using .Attenuator3D
 attenpath = joinpath(@__DIR__, "../data/LBNL_attenlength_Si.csv")
 attendata = CSV.read(attenpath, DataFrame)
 attenenergy = attendata.energy
-attenlength = attendata.attenlength.*1e-6
+attenlength = attendata.attenlength
 massattenuation = [attenenergy attenlength]
 
 # import Milo's photons:
@@ -65,11 +66,17 @@ for i = 1:nγ
     γ[i] = Attenuator3D.Particle(r0, v, E)
 end
 
+# batchI = Attenuator3D.shufflesample(γ)
+# γ = γ[batchI]
+# inenergy = inenergy[batchI]
+# inangle = inangle[batchI]
+
+# nγ = length(γ)
 
 
 # build attenuator:
 # attenuator pitch angles
-θrange = [0, 10*π/180]
+θrange = [0, 0.9*π/180]
 
 nθ = 10
 
@@ -122,19 +129,15 @@ for k = 1:nθ
     )
 end
 
-# plot
-vscale = 0.0004
-plotlyjs()
-Attenuator3D.plotattenuator(attenuators[end])
-Attenuator3D.plotparticles!(γ[1:100:end],sourcez, false)
+# process photons
+transmitprob = zeros(BigFloat, nγ, nθ)
+for i = 1:nθ
+    display("running "*string(θs[i])*" degree case")
+    transmitprob[:,i] = Attenuator3D.batchphotons(γ,attenuators[i])
+    display("case done, saving")
 
-# absorbprob = zeros(nγ, nθ)
-# for i = 1:nθ
-#     display("running "*string(θs[i])*" degree case")
-#     absorbprob[:,i] = Attenuator3D.batchphotons(γ,attenuators[i])
-#     display("case done, saving")
+    savedata = [inenergy inangle transmitprob[:,i]]
 
-#     df = DataFrame(energy=inenergy, angle=inangle, absorbprob=absorbprob[:,i])
-#     writepath = joinpath(@__DIR__, "../results/pitch_atten_"*string(θs[i])*"_rad.csv")
-#     CSV.write(writepath, df)
-# end
+    writepath = joinpath(@__DIR__, "../results/small_pitch_atten_"*string(θs[i])*"_rad.serial")
+    serialize(writepath, savedata)
+end

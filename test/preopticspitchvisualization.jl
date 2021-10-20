@@ -14,10 +14,9 @@ resultfiles = readdir(joinpath(@__DIR__,"../results/"))
 ncases = 0
 θs = []
 energy = []
-absorbprob = []
-dfs = Array{DataFrame, 1}(undef, 1)
+transmitprob = []
 for file in resultfiles
-    if startswith(file, "pre_opt_pitch_atten_")
+    if startswith(file, "pre_opt_pitch_atten_") && endswith(file, ".serial")
         ncases = ncases + 1
         
         # extract pitch angle (θ) from the file name 
@@ -25,18 +24,22 @@ for file in resultfiles
         endi = findnext("_", file, starti)[1] - 1
         append!(θs, parse(Float64, file[starti:endi]))
         
-        df = CSV.read(joinpath(@__DIR__, "../results/"*file), DataFrame)
+        datamat = deserialize(joinpath(@__DIR__, "../results/"*file))
+        display(file)
 
         # store file data
         if ncases == 1
             # store energy, angle (should be same for all runs)
-            energy = df.energy
-            
-            # start absorbprob
-            absorbprob = df.absorbprob
+            energy = datamat[:,1]
+            angle = datamat[:,2]
+
+            # start transmitprob
+            transmitprob = datamat[:,4]
+
         else
-            # horzcat to absorbprob
-            absorbprob = cat(absorbprob, df.absorbprob, dims=2)
+            # horzcat to transmitprob
+            transmitprob = cat(transmitprob, datamat[:,4], dims=2)
+
         end
     end
 end
@@ -44,21 +47,19 @@ end
 # sort data
 sortθ = sortperm(θs)
 θs = θs[sortθ]
-absorbprob = absorbprob[:,sortθ]
+transmitprob = transmitprob[:,sortθ]
 
 sortE = sortperm(energy)
 energy = energy[sortE]
 
 for i = 1:ncases
-    absorbprob[:,i] = absorbprob[sortE,i]
+    transmitprob[:,i] = transmitprob[sortE,i]
 end
-
-transmitprob = 1 .- absorbprob
 
 
 
 # make energy bins
-binwidth = 1e3
+binwidth = 2e3
 bins = 0:binwidth:29e3
 
 # sample probability of falling in each bin
@@ -70,15 +71,28 @@ end
 
 # make counts per bin
 baseprob = ones(length(bins), 1)
+baseweights = zeros(length(bins), 1)
 binnedprob = zeros(length(bins), ncases)
+nonzfrac = zeros(length(bins), ncases)
+
 for i = 1:ncases
     for j = 1:length(binleft)
-        # WATCH FOR OFF-BY-ONE
-
         if j < length(binleft)
-            binnedprob[j,i] = sum(transmitprob[binleft[j]:binleft[j+1], i])/(binleft[j+1] - binleft[j] + 1)
+            thisprobset = transmitprob[binleft[j]:(binleft[j+1] - 1), i]
+            bincount = binleft[j+1] - binleft[j]
+
+            baseweights[j] = bincount
+            binnedprob[j,i] = sum(thisprobset)/bincount
+            nonzfrac[j,i] = length(findall(thisprobset .!= 0))/bincount
+            
         else
-            binnedprob[j,i] = sum(transmitprob[binleft[j]:length(energy), i])/(length(energy) - binleft[j] + 1)
+            thisprobset = transmitprob[binleft[j]:length(energy), i]
+            bincount = length(energy) - binleft[j] + 1
+            
+            baseweights[j] = bincount
+            binnedprob[j,i] = sum(thisprobset)/bincount
+            nonzfrac[j,i] = length(findall(thisprobset .!= 0))/bincount
+
         end
     end
 end
@@ -96,13 +110,12 @@ gr()
 # plotlyjs()
 
 binskev = bins/1000
-binlabels = [string(Int(bin)) for bin in binskev]
-
-histin = fit(Histogram, energy/1000, nbins=length(bins))
+# binlabels = [string(Int(bin)) for bin in binskev]
+binlabels = [string(round(bin,digits=0)) for bin in binskev]
 
 h = bar(
             binskev,
-            histin.weights.*baseprob,
+            baseweights.*baseprob,
             nbins=length(binskev),
             orientation=:vertical,
             linecolor=nothing,
@@ -111,15 +124,11 @@ h = bar(
             label="Input spectrum"
 )
 
-anglerange = [1,3,10]
-# FIX THIS TO MAKE VISIBLE
+anglerange = [1, 3, 10]
 for i = anglerange
-    display(i)
-    nonemptys = findall(binnedprob[:,i] .!= 0)
-    fullbins = binskev[nonemptys]
-    weights = histin.weights[nonemptys].*binnedprob[nonemptys,i]
+    fullbins = binskev
+    weights = baseweights.*binnedprob[:,i]
 
-    display(length(nonemptys)/length(bins))
     h = bar!(
         fullbins,
         weights,
@@ -127,11 +136,11 @@ for i = anglerange
         bar_edges=true,
         orientation=:vertical,
         linecolor=nothing,
-        xticks=([binskev .- 0.5;],binlabels),
+        xticks=([binskev .- 0*binwidth/1000;],binlabels),
         xaxis=("Energy [keV]"),
         yaxis=("Counts"),
         label="attenuator angle: "*@sprintf("%.1f deg",θs[i]*180/π),
-        legend=:bottomright
+        legend=:topright
     )
 end
 current()
@@ -140,7 +149,7 @@ current()
 
 p = plot(
     binskev,
-    histin.weights.*baseprob,
+    weights.*baseprob,
     xaxis=("Energy [keV]"),
     yaxis=("Counts",:log10),
     label=nothing
@@ -149,12 +158,12 @@ p = plot(
 for i = anglerange
     nonemptys = findall(binnedprob[:,i] .!= 0)
     fullbins = binskev[nonemptys]
-    weights = histin.weights[nonemptys].*binnedprob[nonemptys,i]
+    weights = baseweights[nonemptys].*binnedprob[nonemptys,i]
 
     p = plot!(
         fullbins,
         weights,
-        xticks=([binskev .- 0.5;],binlabels),
+        xticks=([binskev .- 0*binwidth/1000;],binlabels),
         ylims=[10^0,10^4],
         yticks=(10 .^ LinRange(0,4,5), ["1", "10", "100", "1,000", "10,000"]),
         xaxis=("Energy [keV]"),
@@ -166,28 +175,29 @@ end
 current()
 
 plot(h,p, layout=(1,2), size=(1280,400), margins=6mm, show=true)
-savefig(joinpath(@__DIR__, "../results/attenuator_angle.pdf"))
+savefig(joinpath(@__DIR__, "../results/attenuator_angle_preopt.pdf"))
 
 
-
+# plotlyjs()
 cscheme = cgrad(:roma, ncases-1, categorical=true, rev=true)
 plot(0,0)
 for i = 2:ncases
     nonemptys0 = findall(binnedprob[:,1] .!= 0 )
     thisnonempty = findall(binnedprob[:,i] .!= 0)
-
     intersectI = intersect(nonemptys0, thisnonempty)
 
     fullbins = binskev[intersectI]
-    weights0 = histin.weights[intersectI].*binnedprob[intersectI,1] 
-    thisweight = histin.weights[intersectI].*binnedprob[intersectI,i]
+    weights0 = baseweights[intersectI].*binnedprob[intersectI,1] 
+    thisweight = baseweights[intersectI].*binnedprob[intersectI,i]
 
     display(i)
     plot!(
             fullbins,
-            (thisweight - weights0)./ weights0,
-            xticks=([binskev .- 0.5;],binlabels),
+            thisweight ./ weights0 .- 1,
+            xticks=([binskev .- 0*binwidth/1000;],binlabels),
+            yticks=([-0.2:0.02:0.1;],[string(bin) for bin in -0.2:0.02:0.1]),
             xlim=[0,15],
+            ylim=[-0.2,0.1],
             color=cscheme[i-1],
             xaxis=("Energy [keV]"),
             yaxis=(L"\frac{T(\theta) - T_0}{T_0}"),
@@ -197,6 +207,7 @@ for i = 2:ncases
             title="Normalized transmission, before optics"
     )
 end
+plot!([0,30], -0.05*ones(2,1), color=:black,width=2, label=nothing)
 current()
 
-savefig(joinpath(@__DIR__, "../results/attenuator_angle_normalize.pdf"))
+savefig(joinpath(@__DIR__, "../results/attenuator_small_angle_preopt_normalize.pdf"))

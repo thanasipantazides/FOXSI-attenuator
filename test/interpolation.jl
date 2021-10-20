@@ -1,4 +1,4 @@
-using Interpolations
+# using Interpolations
 using CSV
 using DataFrames
 using LinearAlgebra
@@ -60,6 +60,12 @@ nistenergies = nistdata.energy
 nistattenlength = nistdata.attenlength
 nistmassattenuation = [nistenergies nistattenlength]
 
+testpath = joinpath(@__DIR__, "../data/LBNL_attenlength_Si_test.csv")
+testdata = CSV.read(testpath, DataFrame)
+testenergies = testdata.energy
+testattenlength = testdata.attenlength
+testmassattenuation = [testenergies testattenlength]
+
 
 # density = 2.3296
 # density = 1
@@ -91,6 +97,13 @@ plot(
     legend=false,
     color=:red,
     linestyle=:dash
+)
+
+plot!(
+    1e-3*testenergies, 1 ./(1e-6*testattenlength),
+    grid=true,
+    legend=false,
+    color=:purple
 )
 
 plot!(

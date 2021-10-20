@@ -209,7 +209,7 @@ plot!(vec(Es[sortI])[I1:I2]./1000,
     legend=false
 )
 
-plot!(refenergy, reftransmissivity.*100,
+plot!(refenergy, (1 .- reftransmissivity).*100,
     color=:red,
     linewidth=2,
     xlabel="Energy [keV]",

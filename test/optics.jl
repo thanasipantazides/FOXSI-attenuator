@@ -11,7 +11,7 @@ using .Attenuator3D
 attenpath = joinpath(@__DIR__, "../data/LBNL_attenlength_Si.csv")
 attendata = CSV.read(attenpath, DataFrame)
 attenenergy = attendata.energy
-attenlength = attendata.attenlength.*1e-6
+attenlength = attendata.attenlength
 massattenuation = [attenenergy attenlength]
 
 # import Milo's post-optics photons:

@@ -1,6 +1,7 @@
 using LinearAlgebra
 using Plots
 using LaTeXStrings
+using Measures
 using DataFrames
 using CSV
 
@@ -29,8 +30,14 @@ for i = 1:length(E)
     v = [v1[i]; v2[i]; v3[i]]
     r0 = [r01[i]; r02[i]; r03[i]]
     θ[i] = acos((v'*[0;0;-1])/norm(v))
-    ϕ[i] = acos((v'*[1;0;0])/norm(v))
     
+    vprojxy = v - (v'*[0;0;1])*[0;0;1]
+    if norm(vprojxy) == 0
+        ϕ[i] = π
+    else
+        ϕ[i] = acos((vprojxy'*[1;0;0])/norm(vprojxy))
+    end
+
     # WRITE THIS:
     x[i] = 0
     
@@ -44,7 +51,39 @@ x = reshape(x, (n,n,n,n))
 γ = reshape(γ, (n,n,n,n))
 α = reshape(absorbprob, (n,n,n,n))
 
-plotlyjs()
-Ei = 6
-xi = 3
-surface(unique(θ), unique(ϕ), α[Ei, :, :, xi], xaxis=(L"\theta"), yaxis=(L"\phi"), zaxis=(L"\alpha"))
+θunique = unique(x->round(x, digits=8), θ)
+ϕunique = unique(x->round(x, digits=8), ϕ)
+
+θgrid = repeat(θunique, outer=[1,n])
+ϕgrid = repeat(ϕunique, outer=[1,n])
+
+gr()
+
+# surface(180*θunique/π, 180*ϕunique/π, 1 .- α[Ei, :, :, xi], color=:viridis, xaxis=(L"\theta,\quad [\mathrm{deg}]"), yaxis=(L"\phi,\quad [\mathrm{deg}]"), zaxis=(L"\tau,\quad [-]")
+
+xi = 1
+
+nplots = 10
+
+# surfs = Array{Plots.Plot{Plots.GRBackend}, 1}(undef, nplots)
+surfs = Array{Plots.Plot{Plots.GRBackend}, 1}(undef, nplots)
+
+surface()
+
+for Ei = 1:nplots
+    surfs[Ei] = surface(
+        180*θunique[:]/π, 
+        180*ϕunique[:]/π, 
+        1 .- vec(α[Ei, :, :, xi]), 
+        color=:viridis,
+        marker_z=1 .- vec(α[Ei,:,:,xi]),
+        colorbar=:none,
+        clims=(0.6,0.8),
+        xaxis=(L"\theta,\quad [\mathrm{deg}]"), 
+        yaxis=(L"\phi,\quad [\mathrm{deg}]"), 
+        zaxis=(L"\tau,\quad [-]"),
+        include_mathjax="cdn"
+    )
+end
+# current()
+plot(surfs..., layout=length(surfs), size=(2000,1000), margin=2.0mm, clims=(0.6,0.8))
