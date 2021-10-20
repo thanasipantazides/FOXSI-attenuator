@@ -404,6 +404,7 @@ function importattenuator(file)
     attendata = CSV.read(attenuationfile, DataFrames.DataFrame)
     massattenuation = [attendata.energy attendata.attenlength]
 
+    # transform based on normal direction
     cθ = dot(normal, [0,0,1])
     sθ = -sqrt(1 - cθ^2)
     transform = [1  0   0;
@@ -422,7 +423,8 @@ function importattenuator(file)
             ztop = hs[1] + hsandwich
             cbot = transform*[x;y;zbot] + pivot
             ctop = transform*[x;y;ztop] + pivot
-
+            
+            # make hole list
             botholes[i,j] = Cylinder(Rs[1], hs[1], cbot, a)
             topholes[i,j] = Cylinder(Rs[2], hs[2], ctop, a)
         end

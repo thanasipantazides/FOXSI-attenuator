@@ -20,7 +20,6 @@ att = Attenuator3D.importattenuator(joinpath(@__DIR__, "../data/post_optic_atten
 
 plotlyjs()
 holes = att.holes[99:102,99:102,:]
-# test = Attenuator3D.plotattenuator(att)
 
 ptlist = zeros(3,length(holes))
 
