@@ -3,6 +3,7 @@ using Distributed, DistributedArrays
 using SharedArrays
 using LinearAlgebra
 using Random
+import JSON, CSV, DataFrames
 using Plots
 # using ArbNumerics
 
@@ -308,38 +309,6 @@ function transmissionprobability(photon, attenuator)
     end
 end
 
-# export batchphotons
-# """
-# ----DEPRECATED-----------------------
-#     batchphotons(photons, attenuator)
-
-# Compute absorption likelihood for a set of `photons` passing through `attenuator`. If multiple processes are available, computation will be parallelized. To execute in parallel, use the `Distributed` module in the calling context, add processes using `addprocs(n)`, and include this source with the `@everywhere macro` before `using` the module:
-    
-#     @everywhere include("Attenuator3D.jl")
-#     using .Attenuator3D
-# """
-# function batchphotons(photons, attenuator)
-#     # check if multiple processes available:
-#     if nprocs() > 1
-#         transmitlikelihood = SharedArray{Float64}(size(photons))
-    
-#         # parallel loop over photons
-#         @inbounds @sync @distributed for i = 1:length(photons)
-#             transmitlikelihood[i] = transmissionprobability(photons[i], attenuator)
-#         end
-#         return Array(transmitlikelihood)
-#     else
-#         transmitlikelihood = zeros(size(photons))
-
-#         @inbounds for i = 1:length(photons)
-#             transmitlikelihood[i] = transmissionprobability(photons[i], attenuator)
-#         end
-#         return transmitlikelihood
-#     end
-# end
-
-
-# NEW =======================================================================>
 export batchphotons
 """
     batchphotons(photons, attenuator)
@@ -402,6 +371,73 @@ function airyintensity(radius, angle, wavelength)
     x = 2*π*radius/wavelength*sin(angle)
     I = (2*SpecialFunctions.besselj1(x)/x)^2
     return I
+end
+
+export importattenuator
+"""
+    importattenuator(file)
+
+Returns a `PixelatedAttenuator` object described by the JSON file.
+"""
+function importattenuator(file)
+    data = JSON.parsefile(file)
+    holedata = data["holes"]
+
+    # order: increasing from bottom to top
+    Rs = convert(Array{Float64,1}, holedata["radii"])
+    hs = convert(Array{Float64,1}, holedata["heights"])
+    order = convert(Array{Int64,1}, holedata["order"])
+
+    Rs = Rs[order]
+    hs = hs[order]
+
+    hsandwich = Float64(data["sandwich"])
+    density = Float64(data["density"])
+
+    nx = Int64(data["nx"])
+    ny = Int64(data["ny"])
+    pitch = Float64(data["pitch"])
+    normal = convert(Array{Float64,1}, data["normal"])
+    normal = normal./norm(normal)
+    pivot = convert(Array{Float64,1}, data["bottomcenter"])
+    attenuationfile = data["attenuationdata"]
+    attendata = CSV.read(attenuationfile, DataFrames.DataFrame)
+    massattenuation = [attendata.energy attendata.attenlength]
+
+    cθ = dot(normal, [0,0,1])
+    sθ = -sqrt(1 - cθ^2)
+    transform = [1  0   0;
+                 0  cθ  sθ;
+                 0  -sθ cθ]'
+
+    topholes = Array{Cylinder, 2}(undef, nx, ny)
+    botholes = Array{Cylinder, 2}(undef, nx, ny)
+    for i = 1:nx
+        for j = 1:ny
+            a = normal
+
+            x = (i - 1)*pitch - (nx - 1)*pitch/2
+            y = (j - 1)*pitch - (ny - 1)*pitch/2
+            zbot = 0.0
+            ztop = hs[1] + hsandwich
+            cbot = transform*[x;y;zbot] + pivot
+            ctop = transform*[x;y;ztop] + pivot
+
+            botholes[i,j] = Cylinder(Rs[1], hs[1], cbot, a)
+            topholes[i,j] = Cylinder(Rs[2], hs[2], ctop, a)
+        end
+    end
+
+    attenuator = PixelatedAttenuator(
+        cat(topholes, botholes, dims=3), 
+        density,
+        topholes[1].c + topholes[1].a*topholes[1].h,
+        botholes[1].c,
+        normal,
+        max(Rs...),
+        massattenuation
+    )
+    return attenuator
 end
 
 # plotting utilities

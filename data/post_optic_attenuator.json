@@ -1,0 +1,15 @@
+{
+    "pitch": 60e-6,
+    "nx": 200,
+    "ny": 200,
+    "holes": {
+        "order": [2, 1],
+        "heights": [120e-6, 175e-6],
+        "radii": [10.5e-6, 5e-6]
+    },
+    "sandwich": 105e-6,
+    "density": 2.3296e3,
+    "bottomcenter": [0.0, 0.0, 0.0],
+    "normal": [0.0, 0.0, 1.0],
+    "attenuationdata": "/home/thanasi/Documents/FOXSI/FOXSI-attenuator/data/LBNL_attenlength_Si.csv"
+}
